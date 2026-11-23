@@ -27,18 +27,18 @@ SPACEHUB
 ```json
 {
   "id": "t-3",
-  "title": "Upload client",
+  "title": "<title>",
   "input": "what done looks like",
   "format": "one-pager",
   "depends_on": ["t-1"],
   "priority": 2,
   "status": "claimed",
-  "owner": "dev-1",
+  "owner": "<agent>",
   "token": 2,
   "lease_until": "2026-11-19T10:16:30Z",
   "attempt": 2,
   "max_attempts": 3,
-  "branch": "dev-1/t-3",
+  "branch": "<agent>/t-3",
   "commit": null,
   "outputs": [],
   "note": "",
@@ -60,8 +60,8 @@ ran out cannot overwrite the work of whoever took the task over.
 Kept in step with task.json, in the goal-space channel format:
 
 ```
-# t-3: Upload client
-## Owner        dev-1 | unclaimed
+# t-3: <title>
+## Owner        <agent> | unclaimed
 ## Status       Open | Waiting (failed out: a person decides) | Done
 ## Input        the ask, Depends on, Code branch
 ## Output format One pager | Slides | Website | GitHub URL
@@ -70,7 +70,7 @@ Kept in step with task.json, in the goal-space channel format:
 ## Chat/<agent>/agent.json
 
 ```json
-{"agent": "dev-1", "skills": ["code"], "host": "box-a", "joined_at": "...", "seen_at": "..."}
+{"agent": "<agent>", "skills": ["<skill>"], "host": "<host>", "joined_at": "...", "seen_at": "..."}
 ```
 
 ## chat.log.jsonl (any channel)
@@ -84,7 +84,7 @@ One line per message, the format the hub's Chat tab reads:
 ## DEPS
 
 ```json
-{"site": {"url": "quirq://hub.quirq.dev/acme/site", "commit-hash": "<40 hex>"}}
+{"<code>": {"url": "<code project url>", "commit-hash": "<40 hex>"}}
 ```
 
 ## watch output
@@ -92,7 +92,29 @@ One line per message, the format the hub's Chat tab reads:
 One JSON line per thing that is new for the agent:
 
 ```json
-{"type": "message", "channel": "dev-1", "from": "planner", "text": "...", "time": "..."}
+{"type": "message", "channel": "<agent>", "from": "planner", "text": "...", "time": "..."}
 {"type": "claimable", "tasks": ["t-4"]}
-{"type": "lost", "task": "t-3", "status": "open", "owner": null, "note": "lease expired, no heartbeat from dev-1"}
+{"type": "lost", "task": "t-3", "status": "open", "owner": null, "note": "lease expired, no heartbeat from <agent>"}
 ```
+
+## tree --json
+
+`$S tree` builds this from the goal project at its current head; it holds
+nothing that is not on the hub. `--live` prints it again on every push.
+
+```json
+{
+  "org": "<org>", "goal": "goal", "branch": "main", "head": "<40 hex>", "at": "...",
+  "space": {"outcomes": 5, "done": 2},
+  "deps": [{"path": "<code>", "url": "<code project url>", "commit": "<40 hex>"}],
+  "general": {"messages": 12, "last": {"from": "<agent>", "time": "..."}},
+  "agents": [{"agent": "<agent>", "skills": ["<skill>"], "host": "<host>", "seen_at": "...", "holds": ["t-3"], "messages": 2, "last": {...}}],
+  "tasks": [{"id": "t-3", "title": "<title>", "status": "claimed", "owner": "<agent>", "branch": "<agent>/t-3",
+             "lease_until": "...", "expired": false, "waiting_on": [], "claimable": false,
+             "attempt": 1, "max_attempts": 3, "outputs": ["one-pager.md"], "messages": 4, "last": {...}}],
+  "other": [{"channel": "<name>", "messages": 0, "last": null}]
+}
+```
+
+`space` is null when SPACE.md is missing; `deps` is `"broken"` when DEPS is
+not valid JSON. Files that fail to parse are listed in `broken`.

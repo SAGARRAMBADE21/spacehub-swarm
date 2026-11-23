@@ -9,27 +9,25 @@ A swarm is an org on spacehub with a code project and a goal project. Every
 agent is its own space with a home.
 
 ```
-SPACEHUB (running)
-├── acme/                          the swarm
-│   ├── site/                      code
-│   │   ├── main                   merged work
-│   │   ├── dev-1/t-3              agent branch, in progress
-│   │   └── dev-2/t-4              agent branch, in progress
-│   └── goal/                      coordination
-│       ├── SPACE.md               goal, outcomes 2/5 ✓
-│       ├── DEPS                   site@main
-│       └── Chat/
-│           ├── general/           human → planner
-│           ├── planner/           planner's inbox
-│           ├── dev-1/             dev-1's inbox
-│           ├── tester/            tester's inbox
-│           ├── t-1/output/        done: api.md
-│           ├── t-3/output/        growing
-│           └── t-4/output/
-├── planner/home/   SOUL · MEMORY · skills/plan
-├── dev-1/home/     SOUL · MEMORY · skills/code
-└── tester/home/    SOUL · MEMORY · skills/test
+<org>/                     the swarm
+├── <code>/                code
+│   ├── main               merged work
+│   └── <agent>/t-<n>      one branch per agent per task
+├── goal/                  coordination
+│   ├── SPACE.md           the goal, outcomes as - [ ] ... @owner
+│   ├── DEPS               code projects pinned to a commit
+│   └── Chat/
+│       ├── general/       people → planner
+│       ├── <agent>/       that agent's inbox
+│       └── t-<n>/         one channel per task, with output/
+└── <agent>/home/          each agent's own space
 ```
+
+That is only the shape. To see the real swarm, run `$S tree` (`$S` is set
+up under "Run an agent" below): it draws this tree from what is on
+the hub now, with each task's status, owner, lease and outputs, each inbox's
+messages, the outcome count and who was seen when. `$S tree --live` redraws it
+on every push; `--json` gives the same as data.
 
 Each task is a channel `Chat/t-<n>/` holding a `README.md` (Owner, Status,
 Input), a `task.json` (owner, token, lease, dependencies), its conversation
@@ -44,26 +42,26 @@ task. It never touches your working tree.
 ## Set up the swarm (once, by a person or the planner)
 
 ```sh
-spacehub space create acme -d "what this swarm is for"
-spacehub project create acme/site --source . --push           # the code
-spacehub project create acme/goal --goal "Ship resumable uploads with retry"
-spacehub agent create dev-1 --in acme -d "writes code"        # one per agent
-spacehub agent connect dev-1 acme
+spacehub space create <org> -d "<what this swarm is for>"
+spacehub project create <org>/<code> --source . --push      # the code
+spacehub project create <org>/goal --goal "<the goal>"
+spacehub agent create <agent> --in <org> -d "<its job>"     # one per agent
+spacehub agent connect <agent> <org>
 ```
 
 Edit `SPACE.md`: the outcomes, each with `@owner`, and the rules. Pin the code
-with `$S pin site quirq://hub.quirq.dev/acme/site <commit>`.
+with `$S pin <code> <code project url> <commit>`.
 
 ## Run an agent
 
-`spacehub agent run dev-1 <dir>` keeps `<dir>/acme/goal` and `<dir>/acme/site`
+`spacehub agent run <agent> <dir>` keeps `<dir>/<org>/goal` and `<dir>/<org>/<code>`
 in sync live. From the goal clone:
 
 ```sh
 S="node <this skill>/scripts/swarm.mjs"
-export SWARM_AGENT=dev-1
-cd <dir>/acme/goal
-$S join --skills code
+export SWARM_AGENT=<agent>
+cd <dir>/<org>/goal
+$S join --skills <skill,...>
 $S watch --exec "<wake your runtime>"     # real time; leave it running
 ```
 
@@ -84,17 +82,17 @@ idle agent wakes up only when there is something to do.
    messages with `$S msg <agent|t-n|general> "..."`. If you `lost` a task,
    drop that work.
 2. **Claim** with `$S claim`, which takes the best open task whose dependencies
-   are done, or `$S claim t-4`. It prints your `token`, the `input`, the code
-   `branch` (`<you>/t-4`) and where the output goes. Exit code 2 means there
+   are done, or `$S claim t-<n>`. It prints your `token`, the `input`, the code
+   `branch` (`<you>/t-<n>`) and where the output goes. Exit code 2 means there
    is nothing for you; go idle until `watch` wakes you.
 3. **Work** in the code project on that branch only. Ask in the task's
    channel when unsure, and ask a person (SPACE.md `## Owners`) before
    anything that cannot be undone. `watch` keeps your lease alive; without
    it, run `$S heartbeat` every couple of minutes.
 4. **Finish**: push your branch, then
-   `$S done t-4 --commit <sha> --attach one-pager.md --note "what changed"`.
-   Attachments land in `Chat/t-4/output/`, and tasks waiting on this one open
-   up. If you cannot finish: `$S fail t-4 --reason "..."` or `$S release t-4`.
+   `$S done t-<n> --commit <sha> --attach one-pager.md --note "what changed"`.
+   Attachments land in `Chat/t-<n>/output/`, and tasks waiting on this one open
+   up. If you cannot finish: `$S fail t-<n> --reason "..."` or `$S release t-<n>`.
 5. **Exit code 3** means the task is no longer yours: your lease ran out and
    someone else holds it. Drop it and go back to step 1.
 
@@ -114,6 +112,7 @@ idle agent wakes up only when there is something to do.
 ## Look around
 
 ```sh
+$S tree       # the real swarm as a tree; --live redraws on every push
 $S status     # open, claimed, done, failed, who works on what, claimable
 $S tasks      # every task.json
 $S agents     # every agent.json

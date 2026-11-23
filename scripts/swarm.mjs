@@ -50,6 +50,7 @@ const USAGE = `swarm.mjs <command> [args] [--as <agent>] [--json]   (run inside 
   sweep                                    take back tasks whose lease ran out
   pin <path> <url> <commit>                pin a code project in DEPS
   status | tasks | agents                  where the swarm stands
+  tree [--live] [--json] [--poll 30]       the real swarm drawn as a tree (--live: redraw on every push)
   watch [--exec "<cmd>"] [--poll 30]       real time: follow pushes, keep leases, print what is new
 
 Env: SWARM_AGENT, SWARM_REMOTE, SWARM_BRANCH (default: the project's default
@@ -485,6 +486,8 @@ const commands = {
     };
   },
 
+  tree() { return tree(); },
+
   tasks() { return Object.values(load(fetchBase()).tasks).sort((a, b) => num(a.id) - num(b.id)); },
   agents() { return Object.values(load(fetchBase()).agents); },
 
@@ -547,7 +550,6 @@ function newFor(s, cursor, advance) {
 // timer renews this agent's leases at half their length and sweeps dead ones.
 function watch() {
   const pollMs = Number(flags.poll ?? 30) * 1000;
-  const bin = process.env.SPACEHUB_BIN ?? 'spacehub';
   const project = projectName();
   let running = false;
   let again = false;
@@ -583,17 +585,189 @@ function watch() {
     }
   };
 
-  // Live: spacehub prints one line per ref change of the project.
+  followPushes(project, pollMs, tick);
+  process.stderr.write(`swarm: ${AGENT} watching ${project} (${BRANCH}) live, ctrl-c to stop\n`);
+  tick('start');
+  return new Promise(() => {});
+}
+
+// Live: spacehub prints one line per ref change of the project; each change
+// of the goal branch calls onChange('push'). A slow poll backs it up.
+function followPushes(project, pollMs, onChange) {
+  const bin = process.env.SPACEHUB_BIN ?? 'spacehub';
   const follow = () => {
     const live = spawn(bin, ['project', 'watch', project], { stdio: ['ignore', 'pipe', 'pipe'] });
     live.on('error', () => process.stderr.write(`swarm: cannot run "${bin}"; following by polling every ${pollMs / 1000}s\n`));
-    live.stdout.on('data', chunk => { if (chunk.toString().includes(`refs/heads/${BRANCH}`)) tick('push'); });
+    live.stdout.on('data', chunk => { if (chunk.toString().includes(`refs/heads/${BRANCH}`)) onChange('push'); });
     live.on('exit', code => { if (code !== null) setTimeout(follow, 5000); });
   };
   follow();
-  setInterval(() => tick('poll'), pollMs);
-  process.stderr.write(`swarm: ${AGENT} watching ${project} (${BRANCH}) live, ctrl-c to stop\n`);
-  tick('start');
+  setInterval(() => onChange('poll'), pollMs);
+}
+
+// ------------------------------------------------------------------ tree
+
+// The swarm as it is on the hub right now, built only from the goal project:
+// nothing here is drawn from examples, so an empty swarm is an empty tree.
+function snapshot(s) {
+  const [org = '?', goal = '?'] = projectName().split('/');
+  const top = readFiles(s.base, ['SPACE.md', 'DEPS']);
+  const boxes = [...(top['SPACE.md'] ?? '').matchAll(/^\s*[-*]\s+\[([ xX])\]/gm)].map(m => m[1] !== ' ');
+  let deps = {};
+  let depsBroken = false;
+  try { deps = top.DEPS ? JSON.parse(top.DEPS) : {}; } catch { depsBroken = true; }
+
+  const channels = new Set();
+  const outputs = {};
+  for (const n of s.names) {
+    const [, ch, ...rest] = n.split('/');
+    channels.add(ch);
+    if (rest[0] === 'output' && rest.length > 1 && rest[rest.length - 1] !== '.gitkeep') (outputs[ch] ??= []).push(rest.slice(1).join('/'));
+  }
+  const talk = ch => {
+    const lines = (s.logs[ch] ?? '').split('\n').filter(Boolean);
+    let last = null;
+    try { last = lines.length ? JSON.parse(lines[lines.length - 1]) : null; } catch { /* torn line */ }
+    return { messages: lines.length, last: last ? { from: last.author, time: last.time } : null };
+  };
+  const ready = new Set(claimable(s).map(t => t.id));
+  const tasks = Object.values(s.tasks).sort((a, b) => num(a.id) - num(b.id)).map(t => ({
+    id: t.id, title: t.title, status: t.status, owner: t.owner, branch: t.branch,
+    lease_until: t.status === 'claimed' ? t.lease_until : null, expired: expired(t),
+    waiting_on: t.status === 'open' ? blockers(s, t) : [], claimable: ready.has(t.id),
+    attempt: t.attempt, max_attempts: t.max_attempts,
+    outputs: (outputs[t.id] ?? []).sort(), ...talk(t.id),
+  }));
+  const agents = Object.values(s.agents).sort((a, b) => a.agent.localeCompare(b.agent)).map(a => ({
+    agent: a.agent, skills: a.skills ?? [], host: a.host, seen_at: a.seen_at,
+    holds: tasks.filter(t => t.status === 'claimed' && t.owner === a.agent).map(t => t.id), ...talk(a.agent),
+  }));
+  const other = [...channels].filter(ch => ch !== 'general' && !s.tasks[ch] && !s.agents[ch]).sort().map(ch => ({ channel: ch, ...talk(ch) }));
+  return {
+    org, goal, branch: BRANCH, head: s.base, at: now(),
+    space: top['SPACE.md'] === undefined ? null : { outcomes: boxes.length, done: boxes.filter(Boolean).length },
+    deps: depsBroken ? 'broken' : Object.entries(deps).map(([p, d]) => ({ path: p, url: d?.url, commit: d?.['commit-hash'] })),
+    general: channels.has('general') ? talk('general') : null,
+    agents, tasks, other,
+    ...(s.broken ? { broken: s.broken } : {}),
+  };
+}
+
+function ago(iso) {
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms)) return '?';
+  const s = Math.round(ms / 1000);
+  if (s < 45) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+
+function left(iso) {
+  const s = Math.round((Date.parse(iso) - Date.now()) / 1000);
+  if (!Number.isFinite(s)) return 'no lease';
+  if (s <= 0) return 'lease ran out';
+  return s < 60 ? `lease ${s}s left` : `lease ${Math.round(s / 60)}m left`;
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const chatNote = c => (c.messages ? `${plural(c.messages, 'message')}, last ${ago(c.last?.time)} by ${c.last?.from ?? '?'}` : 'no messages');
+
+function taskNote(t) {
+  const bits = [];
+  if (t.status === 'claimed') bits.push(`${t.owner} working, ${left(t.lease_until)}`);
+  else if (t.status === 'open') bits.push(t.claimable ? 'open, claimable' : t.waiting_on.length ? `open, waits on ${t.waiting_on.join(', ')}` : 'open');
+  else if (t.status === 'failed') bits.push(`failed ${t.attempt}/${t.max_attempts}, a person decides`);
+  else bits.push(t.status);
+  if (t.outputs.length) bits.push(`output: ${t.outputs.join(', ')}`);
+  return `${t.title ? `"${t.title}" ` : ''}${bits.join(' · ')}`;
+}
+
+// {label, note, children} nodes from a snapshot.
+function treeNodes(v) {
+  const n = (label, note = '', children = []) => ({ label, note, children });
+  const working = v.tasks.filter(t => t.status === 'claimed' && t.branch);
+  const branchNodes = working.map(t => n(t.branch, `${t.id} ${t.expired ? 'lease ran out' : 'in progress'}`));
+  const code = v.deps === 'broken'
+    ? [n('DEPS?', 'not valid JSON')]
+    : v.deps.map(d => n(`${d.path}/`, `${d.url ?? '?'} @ ${(d.commit ?? '?').slice(0, 12)}`));
+  if (branchNodes.length) {
+    if (code.length === 1) code[0].children = branchNodes;
+    else code.push(n('task branches', '', branchNodes));
+  }
+  const space = v.space === null ? 'missing'
+    : v.space.outcomes ? `outcomes ${v.space.done}/${v.space.outcomes}${v.space.done === v.space.outcomes ? ' ✓' : ''}`
+    : 'no outcomes yet';
+  const deps = v.deps === 'broken' ? 'not valid JSON' : v.deps.length ? v.deps.map(d => `${d.path}@${(d.commit ?? '?').slice(0, 7)}`).join(', ') : 'nothing pinned';
+  const chat = [
+    ...(v.general ? [n('general/', chatNote(v.general))] : []),
+    ...v.agents.map(a => n(`${a.agent}/`, `inbox · ${chatNote(a)}`)),
+    ...v.tasks.map(t => n(`${t.id}/`, taskNote(t))),
+    ...v.other.map(c => n(`${c.channel}/`, chatNote(c))),
+  ];
+  const goal = n(`${v.goal}/`, `coordination @ ${v.head.slice(0, 12)}`, [
+    n('SPACE.md', space),
+    n('DEPS', deps),
+    n('Chat/', chat.length ? '' : 'empty', chat),
+  ]);
+  const agents = v.agents.map(a => n(a.agent, [
+    a.skills.length ? `skills ${a.skills.join(', ')}` : 'no skills',
+    a.host ? `on ${a.host}` : null,
+    `seen ${ago(a.seen_at)}`,
+    a.holds.length ? `holds ${a.holds.join(', ')}` : 'idle',
+  ].filter(Boolean).join(' · ')));
+  return n(`${v.org}/`, `the swarm, live ${v.at.slice(11, 19)}Z`, [
+    ...code,
+    goal,
+    n('agents', agents.length ? '' : 'nobody joined yet', agents),
+    ...(v.broken ? [n('broken files', v.broken.join(', '))] : []),
+  ]);
+}
+
+function renderTree(root) {
+  const rows = [];
+  const walk = (node, prefix, branch) => {
+    rows.push([prefix + branch + node.label, node.note]);
+    const next = prefix + (branch === '├── ' ? '│   ' : branch === '└── ' ? '    ' : '');
+    node.children.forEach((c, i) => walk(c, next, i === node.children.length - 1 ? '└── ' : '├── '));
+  };
+  walk(root, '', '');
+  const width = Math.min(40, Math.max(...rows.map(([l]) => [...l].length)) + 3);
+  return rows.map(([l, note]) => (note ? l + ' '.repeat(Math.max(2, width - [...l].length)) + note : l)).join('\n');
+}
+
+function tree() {
+  const show = () => {
+    const v = snapshot(load(fetchBase()));
+    return { v, text: JSON_OUT ? JSON.stringify(v) : renderTree(treeNodes(v)) };
+  };
+  if (!flags.live) { process.stdout.write(`${show().text}\n`); return; }
+
+  // --live: redraw on every push. A TTY gets the tree redrawn in place (and
+  // refreshed on the poll so ages and leases count down); a pipe gets one
+  // tree, or one JSON line, per change of the goal project.
+  const tty = process.stdout.isTTY && !JSON_OUT;
+  const pollMs = Number(flags.poll ?? 30) * 1000;
+  let running = false;
+  let again = false;
+  let lastHead = '';
+  const draw = reason => {
+    if (running) { again = true; return; }
+    running = true;
+    try {
+      const { v, text } = show();
+      if (v.head === lastHead && !tty && reason !== 'start') return;
+      lastHead = v.head;
+      process.stdout.write(tty ? `\x1b[H\x1b[2J${text}\n\nlive, ctrl-c to stop\n` : `${text}\n${JSON_OUT ? '' : '\n'}`);
+    } catch (err) {
+      process.stderr.write(`swarm: ${err.message}\n`);
+    } finally {
+      running = false;
+      if (again) { again = false; setImmediate(() => draw('push')); }
+    }
+  };
+  followPushes(projectName(), tty ? Math.min(pollMs, 15000) : pollMs, draw);
+  draw('start');
   return new Promise(() => {});
 }
 
