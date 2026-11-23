@@ -33,12 +33,12 @@ SPACEHUB
   "depends_on": ["t-1"],
   "priority": 2,
   "status": "claimed",
-  "owner": "coder-1",
+  "owner": "dev-1",
   "token": 2,
   "lease_until": "2026-11-19T10:16:30Z",
   "attempt": 2,
   "max_attempts": 3,
-  "branch": "coder-1/t-3",
+  "branch": "dev-1/t-3",
   "commit": null,
   "outputs": [],
   "note": "",
@@ -61,7 +61,7 @@ Kept in step with task.json, in the goal-space channel format:
 
 ```
 # t-3: Upload client
-## Owner        coder-1 | unclaimed
+## Owner        dev-1 | unclaimed
 ## Status       Open | Waiting (failed out: a person decides) | Done
 ## Input        the ask, Depends on, Code branch
 ## Output format One pager | Slides | Website | GitHub URL
@@ -70,7 +70,7 @@ Kept in step with task.json, in the goal-space channel format:
 ## Chat/<agent>/agent.json
 
 ```json
-{"agent": "coder-1", "skills": ["code"], "host": "box-a", "joined_at": "...", "seen_at": "..."}
+{"agent": "dev-1", "skills": ["code"], "host": "box-a", "joined_at": "...", "seen_at": "..."}
 ```
 
 ## chat.log.jsonl (any channel)
@@ -92,7 +92,7 @@ One line per message, the format the hub's Chat tab reads:
 One JSON line per thing that is new for the agent:
 
 ```json
-{"type": "message", "channel": "coder-1", "from": "planner", "text": "...", "time": "..."}
+{"type": "message", "channel": "dev-1", "from": "planner", "text": "...", "time": "..."}
 {"type": "claimable", "tasks": ["t-4"]}
-{"type": "lost", "task": "t-3", "status": "open", "owner": null, "note": "lease expired, no heartbeat from coder-1"}
+{"type": "lost", "task": "t-3", "status": "open", "owner": null, "note": "lease expired, no heartbeat from dev-1"}
 ```

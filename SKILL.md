@@ -13,21 +13,21 @@ SPACEHUB (running)
 ├── acme/                          the swarm
 │   ├── site/                      code
 │   │   ├── main                   merged work
-│   │   ├── coder-1/t-3            agent branch, in progress
-│   │   └── coder-2/t-4            agent branch, in progress
+│   │   ├── dev-1/t-3              agent branch, in progress
+│   │   └── dev-2/t-4              agent branch, in progress
 │   └── goal/                      coordination
 │       ├── SPACE.md               goal, outcomes 2/5 ✓
 │       ├── DEPS                   site@main
 │       └── Chat/
 │           ├── general/           human → planner
 │           ├── planner/           planner's inbox
-│           ├── coder-1/           coder-1's inbox
+│           ├── dev-1/             dev-1's inbox
 │           ├── tester/            tester's inbox
 │           ├── t-1/output/        done: api.md
 │           ├── t-3/output/        growing
 │           └── t-4/output/
 ├── planner/home/   SOUL · MEMORY · skills/plan
-├── coder-1/home/   SOUL · MEMORY · skills/code
+├── dev-1/home/     SOUL · MEMORY · skills/code
 └── tester/home/    SOUL · MEMORY · skills/test
 ```
 
@@ -47,8 +47,8 @@ task. It never touches your working tree.
 spacehub space create acme -d "what this swarm is for"
 spacehub project create acme/site --source . --push           # the code
 spacehub project create acme/goal --goal "Ship resumable uploads with retry"
-spacehub agent create coder-1 --in acme -d "writes code"       # one per agent
-spacehub agent connect coder-1 acme
+spacehub agent create dev-1 --in acme -d "writes code"        # one per agent
+spacehub agent connect dev-1 acme
 ```
 
 Edit `SPACE.md`: the outcomes, each with `@owner`, and the rules. Pin the code
@@ -56,12 +56,12 @@ with `$S pin site quirq://hub.quirq.dev/acme/site <commit>`.
 
 ## Run an agent
 
-`spacehub agent run coder-1 <dir>` keeps `<dir>/acme/goal` and `<dir>/acme/site`
+`spacehub agent run dev-1 <dir>` keeps `<dir>/acme/goal` and `<dir>/acme/site`
 in sync live. From the goal clone:
 
 ```sh
 S="node <this skill>/scripts/swarm.mjs"
-export SWARM_AGENT=coder-1
+export SWARM_AGENT=dev-1
 cd <dir>/acme/goal
 $S join --skills code
 $S watch --exec "<wake your runtime>"     # real time; leave it running
